@@ -3,7 +3,8 @@ import random
 
 
 random.seed(20)
-
+# 注:本研究采用randrange均匀随机整数生成以及random均匀随机小数生成并相加的方式生成均匀随机分布。
+# 我们也可以采用random.uniform的方式来生成均匀随机分布的仿真算例，仿真算例的生成方式并不影响论文的实验结论。
 
 def generate(vehicle=3,linehaul=10,backhaul=10,size=40):
     """
