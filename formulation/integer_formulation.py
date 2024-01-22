@@ -115,7 +115,8 @@ def solve_model(Q=6,T_max=3,func="total_cost",output_para=False,output_obj=True)
     # (4) out-degree constraint first trip, only can start from vehicle respond point
     model.addConstrs(quicksum(X[i, j, k, 0] for i in K for j in N if i != k) == 0 for k in K)
     # (5) out-degree constraint first trip, doesn't to linehaul
-    model.addConstrs(X[k, j, k, 0] == 0 for j in L for k in K)
+    # 只要保证linehaul顾客在第一次行程不会被访问，则不会出现linehaul到bachaul或backhaul到linehaul情况
+    model.addConstrs(X[i, j, k, 0] == 0 for j in L for i in N for k in K)
     # (6) out-degree constraint last trip, doesn't start vehicle unless trip 0
     model.addConstrs( X[i,j,k,t] == 0 for i in K for j in N for t in T_sub_0 for k in K)
     # depot约束
@@ -126,54 +127,44 @@ def solve_model(Q=6,T_max=3,func="total_cost",output_para=False,output_obj=True)
     # (9) out-degree constraint trip-
     model.addConstrs( quicksum( X[0,j,k,t] for j in N) <= 1 for k in K for t in T_sub_0)
     # (10) balance constraint
-    model.addConstrs( quicksum( X[i,0,k,t] for i in N) == quicksum( X[0,j,k,t+1] for j in N) for k in K for t in T_sub_max)
+    model.addConstrs( quicksum( X[i,0,k,t] for i in N) >= quicksum( X[0,j,k,t+1] for j in N) for k in K for t in T_sub_max)
     # linehaul约束
     # (11) in-degree constraint
     model.addConstrs( quicksum( X[j,i,k,t] for k in K for t in T for j in N if i != j) == 1 for i in B_add_L)
-    # (12) linehaul out-degree constraint
-    model.addConstrs( quicksum( X[i,j,k,t] for k in K for t in T for j in N_add_M if i != j) == 1 for i in L)
-    # backhaul约束
-    # (13) backhaul out-degree constraint
-    # model.addConstrs( quicksum(X[i,j,k,t] for k in K for t in T for j in N if i != j) == 1 for i in B_add_L)
-    model.addConstrs( quicksum( X[i,j,k,t] for k in K for t in T for j in N if i != j) == 1 for i in B)
-    # (14) backhaul balance constraint first trip
+    # (12) backhaul balance constraint first trip
     model.addConstrs( quicksum( X[i,j,k,0] for i in B_add_K) == quicksum( X[j,i,k,0] for i in B_add_D) for j in B for k in K)
-    # (15) backhaul balance constraint last trip
+    # (13) backhaul balance constraint last trip
     model.addConstrs( quicksum( X[i,j,k,t] for i in N) == quicksum( X[j,i,k,t] for i in N) for j in B for t in T_sub_0 for k in K)
-    # (16) linehaul balance constraint last trip
+    # (14) linehaul balance constraint last trip
     model.addConstrs( quicksum( X[i,j,k,t] for i in N) == quicksum( X[j,i,k,t] for i in N_add_M) for j in L for t in T for k in K)
-    # (17) back constraint
+    # (15) back constraint
     for t in T:
         for k in K:
             for i in B:
                 for j in N_sub_K:
                     if i != j:
                         model.addConstr((X[i, j, k, t] == 1) >> (quicksum(X[i, 0, k, t] for i in N_sub_D) == 1), name='indicator')
-    # (18) dummy constraint
+    # (16) dummy constraint
     model.addConstrs( quicksum( X[i,"m",k,t] for t in T for i in N) <= 1 for k in K)
     ## trip约束
     # capacity约束
-    # (19) customers capacity constraint
+    # (17) customers capacity constraint
     for i in N:
         for j in B_add_L:   # N修改为B_add_L,最后一个到达点depot，会一下子完成所有backhaul任务
             for t in T:
                 for k in K:
                     if i != j:
                         model.addConstr((X[i,j,k,t] == 1) >> (U[i,k,t] + G.nodes[j]['type'] == U[j,k,t]), name="indicator")
-    # (20) capacity satisfy constraint
+    # (18) capacity satisfy constraint
     model.addConstrs( U[i,k,t] <= Q for i in N for t in T for k in K)
-    # (21) depot capacity constraint
-    # BUG: U>=0, 无M会不够减
+    # (19) depot capacity constraint
     model.addConstrs( U[0,k,t] == quicksum( X[i,j,k,t] * (-G.nodes[i]['type']) for i in L for j in N_sub_K_add_M if i != j) for t in T for k in K)
-    # (22) vehicle capacity constraint
+    # (20) vehicle capacity constraint
     model.addConstrs( U[k,k,0] == 0 for k in K)
     ## MTZ约束
-    # (23) MTZ约束
-    # 找到BUG原因是MTZ约束的Q
+    # (21) MTZ约束
     e = model.addVars(N, vtype=GRB.INTEGER, name='e')   # i in B_add_L 和 i in N_sub_D 结果不一样
-    for k in K:
-        for t in T:
-            model.addConstrs(e[i] - e[j] + 2 * Q * X[i,j,k,t] <= 2 * Q - 1 for i in B_add_L for j in B_add_L if i != j)
+    model.addConstrs(e[i] - e[j] + 2 * Q * quicksum(X[i,j,k,t] for k in K for t in T) <= 2 * Q - 1 for i in B_add_L for j in B_add_L if i != j)
     ## 决策变量
     model.addConstrs( U[i,k,t] >= 0 for i in N for k in K for t in T)
 
@@ -263,7 +254,7 @@ if __name__ == "__main__":
     # 主程序代码开始时间
     time_start = time.time()
 
-    res, G = solve_model(6,3,"distance_span")
+    res, G = solve_model(6,3,"distance_span",True)
     plot(res, G)
 
     # 主程序代码结束时间
